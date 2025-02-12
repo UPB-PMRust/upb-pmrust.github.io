@@ -24,14 +24,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 This downloads and runs `rustup-init.sh`, which in turn downloads and runs the correct version of the `rustup-init` executable for your platform.
 
-:::info 
-
-Before installing elf2uf2-rs, you need to install  `pkg-config` and `libudev`. You can get it by running the following in your terminal. 
-```shell
-sudo apt-get install pkg-config libudev-dev
-```
-
-:::
 
 #### Windows
 
@@ -47,9 +39,9 @@ You may be prompted to install [Visual Studio C++ Build tools](https://visualstu
 The last step is to run `rustup --version` in terminal. If everything went well, you should see an output similar to this:
 
 ```shell
-rustup 1.26.0 (5af9b9484 2023-04-05)
+rustup 1.27.1 (54dd3d00f 2024-04-24)
 info: This is the version for the rustup toolchain manager, not the rustc compiler.
-info: The currently active `rustc` version is `rustc 1.76.0 (07dca489a 2024-02-04)`
+info: The currently active `rustc` version is `rustc 1.83.0 (90b35a623 2024-11-26)`
 ```
 
 ### `elf2uf2-rs`
@@ -80,8 +72,17 @@ Options:
 
 This tool is an embedded debugging and target interaction toolkit. It enables its user to program and debug microcontrollers via a debug probe.
 
+:::info 
+
+Before installing probe-rs, you need to install  `pkg-config`, `libudev`, `cmake` and `git`. You can get them by running the following in your terminal. If any of these programs are already installed on your machine, you can omit them from the command.
 ```shell
-cargo install probe-rs --features cli --locked
+sudo apt-get install pkg-config libudev-dev cmake git
+```
+
+:::
+
+```shell
+cargo install probe-rs-tools --locked
 ```
 
 If you are on **Linux** you will also need to add this [`udev`](https://probe.rs/files/69-probe-rs.rules) file in `/etc/udev/rules.d`. Then, run:
@@ -92,9 +93,9 @@ udevadm control --reload # to ensure the new rules are used.
 udevadm trigger # to ensure the new rules are applied to already added devices.
 ```
 
-### VSCode Extension (Optional)
+### VSCode Extension
 
-For a better experience, go ahead and install the **Debugger for probe-rs** extension in the Microsoft Extension Marketplace. This will make debugging the program running on the RP2040 as easy as debugging a Rust program running on your host machine.
+For a better experience, go ahead and install the **Debugger for probe-rs** extension in the Microsoft Extension Marketplace. This will allow us to build and upload a program to the RP2040 directly from VSCode and it will make debugging the program while running on the MCU as easy as debugging a Rust program running on your host machine.
 
 ## Flashing over USB
 
@@ -115,11 +116,21 @@ target = "thumbv6m-none-eabi"
 cargo build --release --target thumbv6m-none-eabi
 ```
 
+:::info
+
+You can also use `build` without the `--release` option. This way, the rust compiler will not apply any optimisations to your code and a `debug` build will be generated. 
+
+:::
+
 ### Flashing
 
 To flash a program to the Raspberry Pi Pico via USB, it needs to be in *USB mass storage device mode*. To put it in this mode, you need to **hold the `BOOTSEL` button down**  while connecting it to your PC. Connecting and disconnecting the USB can lead to the port getting damaged, so we conveniently attached a reset button on the breadboard included on the **Pico Explorer Base**. Now, to make it reflashable again, just press the two buttons simultaneously.
 
-After connecting the board to your PC and compiling the program, locate the binary in the `target/thumbv6m-none-eabi/release/` folder then, run:
+After connecting the board to your PC and compiling the program, locate the binary in the `target/thumbv6m-none-eabi/release/` (or `target/thumbv6m-none-eabi/debug/` if you didn't use the `--release` option) folder. There are a few ways to flash the binary to the board:
+
+#### 1. Using `elf2uf2-rs`:
+
+Run this command:
 
 ```shell
 elf2uf2-rs -d -s /path/to/your/binary
@@ -132,13 +143,49 @@ elf2uf2-rs -d -s /path/to/your/binary
 On `Windows`, you may need to run this command in a terminal that has **Admin Privileges**.
 :::
 
+#### 2. Using `probe-rs`:
+
+You can run
+
+```shell
+probe-rs run --chip RP2040 --protocol swd --speed 16000 /path/to/your/binary
+```
+
+This will flash the board without starting `probe-rs`' debugging functionality.
+
+#### 3. Configuring `cargo run` to do it
+
+If you've already created a `.cargo/config.toml` with a build target, you can add these lines to the file:
+
+```toml
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip RP2040 --protocol swd --speed 16000"
+```
+
+Now, `cargo run` will automatically call the command from option 2, without having to specify the path to the binary.
+
+:::note
+As it will be required later in the tutorial, you should also add
+
+```toml
+[env]
+DEFMT_LOG = "debug"
+```
+
+which tells cargo that your program will use **deferred formatting** to more efficiently send logs to the host machine via a serial interface. You can learn more about `defmt` [here](https://defmt.ferrous-systems.com/).
+:::
+
+#### 4. Using the **Debugger for probe-rs** extension
+
+This method can be used from VSCode's **Run and Debug** view. The binary will be flashed to the board by `probe-rs` and the debugging mode will be running by default. However, this option requires further configuration of the project which will be detailed in the next section of this tutorial. 
+
 ## Debugging using Raspberry Pi Debug Probe
 
 In order to be able to debug the program running on the board, we will need to connect the **Raspberry Pi Debug Probe** to our **Raspberry Pi Pico W**. Below, you have a picture of the debug kit provided:
 
 ![Raspberry Pi Debug probe](assets/the-probe.png)
 
-To connect them, we will use the **3-pin debug to 0.1-inch header (female)** cable. First, carefully insert the **3-pin debug** head in the **right side** connector. Then you will also need to connect it to the Raspberry Pi Pico W. You will find attached the pinout, take a closer look at the bottom of the image:
+To connect them, we will use the **3-pin debug to 0.1-inch header (female)** cable. First, carefully insert the **3-pin debug** head in the **right side** connector (marked D). Then you will also need to connect it to the Raspberry Pi Pico W. You will find attached the pinout, take a closer look at the bottom of the image:
 
 ![Raspberry Pi Pico W pinout](assets/picow-pinout.svg)
 
@@ -154,13 +201,60 @@ The connections must be:
 Do not forget to connect both the Debug Probe and Pico to your PC.
 :::
 
-Now, you can either debug using the command line by running:
+The simplest way to start debugging is to use the **Run and Debug** view in Visual Studio Code. First, you will need to create a `.vscode/launch.json`. VSCode will give you the option to create one when entering the **Run and Debug** menu:
 
-```shell
-probe-rs run --chip RP2040 path/to/your/binary
+![Run and Debug menu](assets/run_and_debug.png)
+
+Here is an example of such a file:
+
+##### launch.json
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "rust: cargo build",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "launch request",
+            "cwd": "${workspaceFolder}",
+            "chip": "RP2040",
+            // RP2040 doesn't support connectUnderReset
+            "connectUnderReset": false,
+            "speed": 4000,
+            "runtimeExecutable": "probe-rs",
+            "runtimeArgs": [
+                "dap-server"
+            ],
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": false,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "target/thumbv6m-none-eabi/debug/test_rp",
+                    // Comment this line if the svd file is not present
+                    "svdFile": "./.vscode/rp2040.svd",
+                    "rttEnabled": true,
+                    "options": {
+                        "env": {
+                            "DEFMT_LOG": "debug"
+                        }
+                    },
+                }
+            ],
+            "consoleLogLevel": "Info", //Error, Warn, Info, Debug, Trace
+            "wireProtocol": "Swd"
+        }
+    ]
+}
 ```
 
-or you can use **Debug and Run** view in Visual Studio Code. You will need to modify the `programBinary` path in the `.vscode/launch.json` config file to point to your binary file.
+You can find out more about this configuration file and available options, as well as the debugging process itself from the official [probe-rs documentation](https://probe.rs/docs/tools/debugger/).
+
+A recommended step is to download the `rp2040.svd` [file](https://raw.githubusercontent.com/raspberrypi/pico-sdk/1.3.1/src/rp2040/hardware_regs/rp2040.svd) and place it in the `.vscode/` directory, as it gives `probe-rs` and VSCode additional information on the registers and memory regions used by the MCU. If you aren't using this file, the `"svdFile"` attribute should be commented out or removed from `launch.json`.
 
 ## Building your first Embassy-rs project
 
@@ -202,7 +296,7 @@ An example of such file is this:
 
 [toolchain]
 # The release to be used.
-channel = "1.75"
+channel = "1.83"
 # The targets for compilation that need to be added. This is used for 
 # cross-compilation, as the executables we are producing need to be
 # run on our boards.
@@ -290,6 +384,10 @@ fn main() {
 }
 ```
 
+:::info
+These three files should be found in the root folder of your project (same directory as `Cargo.toml`).
+:::
+
 #### Adding the Dependencies
 
 At this step, we must add the dependencies we will use for our project. Bellow you will find the basics you will need for a minimal application, including an `usb_logger` to *"enable"* debugging over serial.
@@ -299,14 +397,14 @@ At this step, we must add the dependencies we will use for our project. Bellow y
 This is an `async/await` executor designed for embedded. To add it as a dependency to your project, run:
 
 ```shell
-cargo add embassy-executor --features arch-cortex-m,executor-thread,executor-interrupt,integrated-timers,task-arena-size-32768
+cargo add embassy-executor --features arch-cortex-m,executor-thread,executor-interrupt,task-arena-size-32768,defmt
 ```
 
 * `arch-cortex-m` - feature to specify we are running on the cortex M architecture
 * `executor-thread` - enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
 * `executor-interrupt` - enable the interrupt-mode executor (available in Cortex-M only)
-* `integrated-timers` - use the executor-integrated embassy-time timer queue.
 * `task-arena-size-X` - sets the task arena size
+* `defmt` - use deferred formatting for logs
 
 We will also need to add the `cortex-m` and `cortex-m-rt` crates as dependencies, as the `#[executor::main]` attribute depends on the minimal startup code for the Cortex M microcontrollers found in this crates. To do that, run:
 
@@ -328,11 +426,13 @@ cargo add embassy-time
 This crate is a **Hardware Abstraction Layer** for the **RP2040**. You can add it to your project like so:
 
 ```shell
-cargo add embassy-rp --features time-driver,critical-section-impl
+cargo add embassy-rp --features time-driver,critical-section-impl,rp2040,defmt
 ```
 
 * `time-driver` - enable the timer for use with `embassy-time` with a `1MHz` tick rate.
 * `critical-section-impl` - configure the critical section crate to use an implementation that is safe for multicore use on RP2040
+* `rp2040` - this crate also works for other Raspberry MCU's,
+so we need to specify the one we are using
 
 #### `embassy-usb-logger`
 
@@ -343,7 +443,7 @@ cargo add log
 cargo add embassy-usb-logger
 ```
 
-### `probe-panic`
+#### `probe-panic`
 
 This crate adds a panic handler for the microchip that prints panic messages over **JTAG**, and in order to add it, run:
 
@@ -351,9 +451,30 @@ This crate adds a panic handler for the microchip that prints panic messages ove
 cargo add panic-probe
 ```
 
+#### `rp-pac`
+
+This crate is a dependency for `embassy-rp`, but we need to explicitly add it to our project to avoid linker errors, as this crate also works for the RP2350 MCU.
+
+```shell
+cargo add rp-pac --features cortex-m-rt,defmt,rp2040,rt
+```
+
+Finally, we should add the `defmt` and `defmt-rtt` crates, as we will be using some of the macros defined by the former to send logs back to our host. The latter crate transmits the log messages over the RTT (Real-Time Transfer) protocol.
+
+```shell
+cargo add defmt
+cargo add defmt-rtt
+```
+
 ### The code
 
-Here you can find a minimally explained code that prints `"Hello World!"` over the serial interface:
+Here you can find a minimally explained code that prints `"Hello World!"` over the serial interface and demonstrates how two different tasks can be run concurrently. You can run this by using
+
+```shell
+cargo run
+```
+
+or by starting the `launch request` task at the top of the **Run and Debug** menu.
 
 #### `main.rs`
 
@@ -361,39 +482,37 @@ Here you can find a minimally explained code that prints `"Hello World!"` over t
 #![no_std]
 #![no_main]
 
+use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::USB;
-use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
-use embassy_time::Timer;
-use log::info;
-use panic_probe as _;
+use embassy_rp::gpio::{self};
+use embassy_time::{Duration, Timer};
+use {defmt_rtt as _, panic_probe as _};
 
-// Bind interrupts to their handlers.
-bind_interrupts!(struct Irqs {
-    USBCTRL_IRQ => UsbInterruptHandler<USB>;
-});
-
-// Async task for USB logging.
+// Async task to send a log message
 #[embassy_executor::task]
-async fn logger_task(driver: Driver<'static, USB>) {
-    embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
+async fn print_task() {
+    loop {
+        info!("Print task");
+        Timer::after(Duration::from_secs(2)).await;
+    }
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    // Initialize peripherals and USB driver.
-    let rp_peripherals = embassy_rp::init(Default::default());
-    let usb_driver = Driver::new(rp_peripherals.USB, Irqs);
+    // Initialize peripherals
+    let p = embassy_rp::init(Default::default());
 
-    // Spawn the logger task
-    spawner.spawn(logger_task(usb_driver)).unwrap();
-    
-    Timer::after_millis(1000).await;
-    info!("Hello, world!");
+    Timer::after(Duration::from_secs(1)).await;
+    info!("Hello world!");
+
+    // Spawn the print task
+    Timer::after(Duration::from_secs(1)).await; 
+    spawner.spawn(print_task()).unwrap();
 
     loop {
-        Timer::after_millis(10).await;
+        // Print a message from the main task as well
+        info!("Main task");
+        Timer::after(Duration::from_secs(3)).await;
     }
 }
 ```
